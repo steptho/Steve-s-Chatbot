@@ -1,4 +1,5 @@
 streamlit
+PyPDF2
 openai
 pandas
 numpy
