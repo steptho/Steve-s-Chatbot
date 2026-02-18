@@ -1,5 +1,6 @@
 streamlit
-PyPDF2
 openai
+PyPDF2
 pandas
-numpy
+python-docx
+python-pptx
