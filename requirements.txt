@@ -6,3 +6,6 @@ python-docx
 python-pptx
 reportlab
 streamlit-webrtc
+av
+soundfile
+numpy
