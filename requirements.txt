@@ -4,3 +4,5 @@ PyPDF2
 pandas
 python-docx
 python-pptx
+reportlab
+streamlit-webrtc
