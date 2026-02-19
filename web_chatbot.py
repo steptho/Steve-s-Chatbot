@@ -1,4 +1,5 @@
 # web_chatbot.py
+
 import os
 import streamlit as st
 from openai import OpenAI
@@ -6,130 +7,214 @@ import PyPDF2
 import pandas as pd
 import docx
 from pptx import Presentation
-import base64
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
 import tempfile
+import json
+import base64
+from streamlit_webrtc import webrtc_streamer, AudioProcessorBase, WebRtcMode
+import av
 
-# -----------------------------
-# Page Config
-# -----------------------------
+
+# -----------------------------------
+# PAGE CONFIG
+# -----------------------------------
 st.set_page_config(
-    page_title="Steve's Chatbot",
+    page_title="Steve's Chatbot Pro",
     page_icon="🤖",
-    layout="centered"
+    layout="wide"
 )
 
-st.title("🤖 Steve's Chatbot")
+st.title("🤖 Steve's Chatbot Pro")
 
-# -----------------------------
-# OpenAI Client
-# -----------------------------
+# -----------------------------------
+# OPENAI CLIENT (API KEY ONLY)
+# -----------------------------------
 api_key = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
-org_id = os.getenv("OPENAI_ORG_ID") or st.secrets.get("OPENAI_ORG_ID")
-project_id = os.getenv("OPENAI_PROJECT_ID") or st.secrets.get("OPENAI_PROJECT_ID")
 
-if not api_key or not org_id or not project_id:
-    st.error(
-        "API Key, Organization ID, or Project ID not set! "
-        "Please set OPENAI_API_KEY, OPENAI_ORG_ID, and OPENAI_PROJECT_ID."
-    )
+if not api_key:
+    st.error("OPENAI_API_KEY not set in Streamlit Secrets.")
     st.stop()
 
-client = OpenAI(
-    api_key=api_key,
-    organization=org_id,
-)
+client = OpenAI(api_key=api_key)
 
-# -----------------------------
-# Session Memory
-# -----------------------------
+# -----------------------------------
+# SESSION STATE
+# -----------------------------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Display previous messages
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+if "admin_authenticated" not in st.session_state:
+    st.session_state.admin_authenticated = False
 
-# -----------------------------
-# File Upload Section
-# -----------------------------
-uploaded_file = st.file_uploader(
-    "Upload PDF, CSV, Word, PowerPoint, Image or Audio",
-    type=["pdf", "csv", "docx", "pptx", "jpg", "png", "mp3", "wav"]
+# -----------------------------------
+# SIDEBAR
+# -----------------------------------
+st.sidebar.header("🛠 Tools")
+
+# -------- Admin Login --------
+st.sidebar.subheader("🔐 Admin Login")
+
+admin_password = st.sidebar.text_input(
+    "Enter Admin Password",
+    type="password"
 )
 
-file_text = ""
+if st.sidebar.button("Login"):
+    if admin_password == st.secrets.get("ADMIN_PASSWORD"):
+        st.session_state.admin_authenticated = True
+        st.sidebar.success("Admin authenticated")
+    else:
+        st.sidebar.error("Incorrect password")
 
-if uploaded_file:
+# -------- File Upload --------
+st.sidebar.subheader("🖼 Vision AI")
 
-    # ---------------- PDF ----------------
-    if uploaded_file.type == "application/pdf":
-        pdf_reader = PyPDF2.PdfReader(uploaded_file)
-        for page in pdf_reader.pages:
-            file_text += page.extract_text() + "\n"
+uploaded_image = st.sidebar.file_uploader(
+    "Upload Image (JPG/PNG)",
+    type=["jpg", "png"],
+    key="vision_uploader"
+)
 
-    # ---------------- CSV ----------------
-    elif uploaded_file.type == "text/csv":
-        df = pd.read_csv(uploaded_file)
-        file_text = df.to_string(index=False)
+if uploaded_image:
+    st.sidebar.image(uploaded_image, use_container_width=True)
 
-    # ---------------- WORD ----------------
-    elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-        doc = docx.Document(uploaded_file)
-        file_text = "\n".join([para.text for para in doc.paragraphs])
-
-    # ---------------- POWERPOINT ----------------
-    elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.presentationml.presentation":
-        prs = Presentation(uploaded_file)
-        for slide in prs.slides:
-            for shape in slide.shapes:
-                if hasattr(shape, "text"):
-                    file_text += shape.text + "\n"
-
-    # ---------------- IMAGE ----------------
-    elif uploaded_file.type in ["image/jpeg", "image/png"]:
-        st.image(uploaded_file, caption="Uploaded Image", use_container_width=True)
-        st.info("Image uploaded. You can ask questions about it.")
-
-        image_bytes = uploaded_file.read()
+    if st.sidebar.button("Analyze Image"):
+        image_bytes = uploaded_image.read()
         base64_image = base64.b64encode(image_bytes).decode("utf-8")
 
+        with st.spinner("Analyzing image..."):
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Analyze this image in detail."},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{base64_image}"
+                                },
+                            },
+                        ],
+                    }
+                ],
+            )
+
+        vision_reply = response.choices[0].message.content
+
         st.session_state.messages.append({
-            "role": "system",
-            "content": "User uploaded an image. Analyze it if asked."
+            "role": "assistant",
+            "content": f"🖼 Image Analysis:\n\n{vision_reply}"
         })
 
-    # ---------------- AUDIO ----------------
-    elif uploaded_file.type in ["audio/mpeg", "audio/wav"]:
-        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
-            tmp_file.write(uploaded_file.read())
-            tmp_path = tmp_file.name
+        st.success("Image analyzed! See chat window.")
 
-        with open(tmp_path, "rb") as audio_file:
+# -------- Live Voice Section --------
+st.sidebar.subheader("🎤 Live Voice")
+
+class AudioProcessor(AudioProcessorBase):
+    def __init__(self):
+        self.frames = []
+
+    def recv(self, frame: av.AudioFrame) -> av.AudioFrame:
+        self.frames.append(frame.to_ndarray())
+        return frame
+
+webrtc_ctx = webrtc_streamer(
+    key="speech",
+    mode=WebRtcMode.SENDONLY,
+    audio_processor_factory=AudioProcessor,
+    media_stream_constraints={"audio": True, "video": False},
+)
+
+if st.sidebar.button("Transcribe Voice"):
+    if webrtc_ctx.audio_processor and webrtc_ctx.audio_processor.frames:
+        import numpy as np
+        audio_data = np.concatenate(webrtc_ctx.audio_processor.frames, axis=0)
+
+        temp_audio = "temp_audio.wav"
+        import soundfile as sf
+        sf.write(temp_audio, audio_data, 44100)
+
+        with open(temp_audio, "rb") as audio_file:
             transcript = client.audio.transcriptions.create(
                 model="whisper-1",
                 file=audio_file
             )
-
-        st.success("Voice transcribed:")
-        st.write(transcript.text)
 
         st.session_state.messages.append({
             "role": "user",
             "content": transcript.text
         })
 
-    # Add extracted text to conversation
-    if file_text:
-        st.session_state.messages.append({
-            "role": "system",
-            "content": file_text
-        })
-        st.success(f"Loaded {uploaded_file.name} into conversation.")
+        st.success("Voice transcribed and added to chat.")
+    else:
+        st.sidebar.warning("No audio recorded.")
 
-# -----------------------------
+
+# -------- Export Section --------
+st.sidebar.subheader("📥 Export Conversation")
+
+# TXT Export
+conversation_text = "\n\n".join(
+    [f"{m['role'].upper()}: {m['content']}" for m in st.session_state.messages]
+)
+
+st.sidebar.download_button(
+    "Download as TXT",
+    conversation_text,
+    file_name="conversation.txt"
+)
+
+# JSON Export
+st.sidebar.download_button(
+    "Download as JSON",
+    json.dumps(st.session_state.messages, indent=2),
+    file_name="conversation.json"
+)
+
+# PDF Export
+if st.sidebar.button("Generate PDF"):
+    pdf_path = tempfile.NamedTemporaryFile(delete=False).name
+    doc = SimpleDocTemplate(pdf_path, pagesize=letter)
+    styles = getSampleStyleSheet()
+    elements = []
+
+    for msg in st.session_state.messages:
+        elements.append(Paragraph(f"<b>{msg['role'].upper()}</b>: {msg['content']}", styles["Normal"]))
+        elements.append(Spacer(1, 12))
+
+    doc.build(elements)
+
+    with open(pdf_path, "rb") as f:
+        st.sidebar.download_button(
+            "Download PDF",
+            f,
+            file_name="conversation.pdf"
+        )
+
+# -------- Admin Controls --------
+if st.session_state.admin_authenticated:
+    st.sidebar.subheader("⚙ Admin Controls")
+
+    if st.sidebar.button("Clear Conversation"):
+        st.session_state.messages = []
+        st.sidebar.success("Conversation cleared.")
+
+# -----------------------------------
+# MAIN CHAT AREA
+# -----------------------------------
+
+# Display chat history
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
 # User Input
-# -----------------------------
 if prompt := st.chat_input("Ask me anything..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
 
@@ -144,13 +229,17 @@ if prompt := st.chat_input("Ask me anything..."):
 
         reply = response.choices[0].message.content
 
-        st.session_state.messages.append({"role": "assistant", "content": reply})
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": reply
+        })
 
         with st.chat_message("assistant"):
             st.markdown(reply)
 
     except Exception as e:
         st.error(f"Error: {e}")
+
 
 
 
