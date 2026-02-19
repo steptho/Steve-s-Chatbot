@@ -73,16 +73,20 @@ if st.sidebar.button("Login"):
 st.sidebar.subheader("🖼 Vision AI")
 
 uploaded_image = st.sidebar.file_uploader(
-    "Upload Image (JPG/PNG)",
-    type=["jpg", "png"],
-    key="vision_uploader"
+    "Upload Image",
+    type=["jpg", "jpeg", "png"],
+    key="vision_upload"
 )
 
-if uploaded_image:
-    st.sidebar.image(uploaded_image, use_container_width=True)
+if uploaded_image is not None:
+
+    # Store image bytes immediately
+    image_bytes = uploaded_image.getvalue()
+
+    st.sidebar.image(image_bytes, use_container_width=True)
 
     if st.sidebar.button("Analyze Image"):
-        image_bytes = uploaded_image.read()
+
         base64_image = base64.b64encode(image_bytes).decode("utf-8")
 
         with st.spinner("Analyzing image..."):
@@ -92,7 +96,7 @@ if uploaded_image:
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": "Analyze this image in detail."},
+                            {"type": "text", "text": "Describe this image in detail."},
                             {
                                 "type": "image_url",
                                 "image_url": {
@@ -111,7 +115,7 @@ if uploaded_image:
             "content": f"🖼 Image Analysis:\n\n{vision_reply}"
         })
 
-        st.success("Image analyzed! See chat window.")
+        st.success("Image analyzed successfully.")
 
 # -------- Live Voice Section --------
 st.sidebar.subheader("🎤 Live Voice")
