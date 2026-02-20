@@ -219,11 +219,28 @@ if uploaded_doc is not None:
                     if hasattr(shape, "text") and shape.text.strip():
                         file_text += shape.text + "\n"
 
-        # -------- CSV --------
+ # -------- CSV --------
         elif file_type == "text/csv":
             df = pd.read_csv(uploaded_doc)
-            file_text = df.to_string(index=False)
+            st.session_state["spreadsheet_df"] = df
+            file_text = df.head(50).to_string(index=False)
 
+        # -------- EXCEL (.xlsx) --------
+        elif file_type in [
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.ms-excel"
+        ]:
+            df_dict = pd.read_excel(uploaded_doc, sheet_name=None)
+
+            combined_text = ""
+
+            for sheet_name, df in df_dict.items():
+                combined_text += f"\nSheet: {sheet_name}\n"
+                combined_text += df.head(50).to_string(index=False)
+                combined_text += "\n"
+
+            st.session_state["spreadsheet_df"] = df_dict
+            file_text = combined_text
         # -------- VALIDATION --------
         if file_text.strip() == "":
             st.sidebar.error("No extractable text found in this document.")
