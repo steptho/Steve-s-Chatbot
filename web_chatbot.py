@@ -185,8 +185,8 @@ st.sidebar.download_button(
 st.sidebar.subheader("📂 Document Intelligence")
 
 uploaded_doc = st.sidebar.file_uploader(
-    "Upload PDF, Word, PPT, or CSV",
-    type=["pdf", "docx", "pptx", "csv"],
+    "Upload PDF, Word, PPT, CSV, or Excel",
+    type=["pdf", "docx", "pptx", "csv", "xlsx"],
     key="doc_upload"
 )
 
