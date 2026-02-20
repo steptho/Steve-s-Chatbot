@@ -282,7 +282,7 @@ if "document_text" in st.session_state:
 
         if "spreadsheet_df" in st.session_state:
 
-    st.sidebar.subheader("📊 Spreadsheet Preview")
+            st.sidebar.subheader("📊 Spreadsheet Preview")
 
     if isinstance(st.session_state["spreadsheet_df"], dict):
         for sheet_name, df in st.session_state["spreadsheet_df"].items():
