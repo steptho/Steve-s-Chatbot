@@ -160,6 +160,52 @@ if st.sidebar.button("Transcribe Voice"):
         st.sidebar.warning("No audio recorded.")
 
 
+# -------- Upload Word Document --------
+st.sidebar.subheader("📄 Upload Word Document")
+
+uploaded_word = st.sidebar.file_uploader(
+    "Upload .docx",
+    type=["docx"],
+    key="word_upload"
+)
+
+if uploaded_word is not None:
+
+    file_text = ""
+
+    doc = docx.Document(uploaded_word)
+
+    for paragraph in doc.paragraphs:
+        if paragraph.text.strip():
+            file_text += paragraph.text + "\n"
+
+    if file_text.strip() == "":
+        st.sidebar.error("No extractable text found in Word document.")
+    else:
+        st.session_state["word_text"] = file_text
+        st.sidebar.success("Word document loaded successfully.")
+
+# -------- Summarise Word Button --------
+if "word_text" in st.session_state:
+    if st.sidebar.button("Summarise Word Document"):
+        with st.spinner("Summarising Word document..."):
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "Summarise the following document clearly and concisely."},
+                    {"role": "user", "content": st.session_state["word_text"]}
+                ]
+            )
+
+        summary = response.choices[0].message.content
+
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": f"📄 Word Document Summary:\n\n{summary}"
+        })
+
+        st.success("Summary added to chat.")
+
 # -------- Export Section --------
 st.sidebar.subheader("📥 Export Conversation")
 
