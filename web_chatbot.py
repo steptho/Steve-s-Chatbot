@@ -280,6 +280,18 @@ if "document_text" in st.session_state:
 
         st.success("Summary added to chat.")
 
+        if "spreadsheet_df" in st.session_state:
+
+    st.sidebar.subheader("📊 Spreadsheet Preview")
+
+    if isinstance(st.session_state["spreadsheet_df"], dict):
+        for sheet_name, df in st.session_state["spreadsheet_df"].items():
+            st.sidebar.write(f"Sheet: {sheet_name}")
+            st.sidebar.dataframe(df.head())
+    else:
+        st.sidebar.dataframe(st.session_state["spreadsheet_df"].head())
+
+
 # -------- Summarise Button --------
 if "pdf_text" in st.session_state:
     if st.sidebar.button("Summarise PDF"):
