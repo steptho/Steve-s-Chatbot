@@ -181,25 +181,51 @@ st.sidebar.download_button(
     file_name="conversation.json"
 )
 
-# PDF Export
-if st.sidebar.button("Generate PDF"):
-    pdf_path = tempfile.NamedTemporaryFile(delete=False).name
-    doc = SimpleDocTemplate(pdf_path, pagesize=letter)
-    styles = getSampleStyleSheet()
-    elements = []
+st.sidebar.subheader("📂 Upload PDF")
 
-    for msg in st.session_state.messages:
-        elements.append(Paragraph(f"<b>{msg['role'].upper()}</b>: {msg['content']}", styles["Normal"]))
-        elements.append(Spacer(1, 12))
+uploaded_file = st.sidebar.file_uploader(
+    "Upload PDF",
+    type=["pdf"],
+    key="pdf_upload"
+)
 
-    doc.build(elements)
+if uploaded_file is not None:
 
-    with open(pdf_path, "rb") as f:
-        st.sidebar.download_button(
-            "Download PDF",
-            f,
-            file_name="conversation.pdf"
-        )
+    file_text = ""
+
+    pdf_reader = PyPDF2.PdfReader(uploaded_file)
+
+    for page in pdf_reader.pages:
+        text = page.extract_text()
+        if text:
+            file_text += text + "\n"
+
+    if file_text.strip() == "":
+        st.sidebar.error("No extractable text found in this PDF.")
+    else:
+        st.session_state["pdf_text"] = file_text
+        st.sidebar.success("PDF loaded successfully.")
+
+# -------- Summarise Button --------
+if "pdf_text" in st.session_state:
+    if st.sidebar.button("Summarise PDF"):
+        with st.spinner("Summarising PDF..."):
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "Summarise the following document clearly and concisely."},
+                    {"role": "user", "content": st.session_state["pdf_text"]}
+                ]
+            )
+
+        summary = response.choices[0].message.content
+
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": f"📄 PDF Summary:\n\n{summary}"
+        })
+
+        st.success("Summary added to chat.")
 
 # -------- Admin Controls --------
 if st.session_state.admin_authenticated:
