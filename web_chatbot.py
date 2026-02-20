@@ -17,7 +17,6 @@ import base64
 from streamlit_webrtc import webrtc_streamer, AudioProcessorBase, WebRtcMode
 import av
 
-
 # -----------------------------------
 # PAGE CONFIG
 # -----------------------------------
@@ -159,53 +158,6 @@ if st.sidebar.button("Transcribe Voice"):
     else:
         st.sidebar.warning("No audio recorded.")
 
-
-# -------- Upload Word Document --------
-st.sidebar.subheader("📄 Upload Word Document")
-
-uploaded_word = st.sidebar.file_uploader(
-    "Upload .docx",
-    type=["docx"],
-    key="word_upload"
-)
-
-if uploaded_word is not None:
-
-    file_text = ""
-
-    doc = docx.Document(uploaded_word)
-
-    for paragraph in doc.paragraphs:
-        if paragraph.text.strip():
-            file_text += paragraph.text + "\n"
-
-    if file_text.strip() == "":
-        st.sidebar.error("No extractable text found in Word document.")
-    else:
-        st.session_state["word_text"] = file_text
-        st.sidebar.success("Word document loaded successfully.")
-
-# -------- Summarise Word Button --------
-if "word_text" in st.session_state:
-    if st.sidebar.button("Summarise Word Document"):
-        with st.spinner("Summarising Word document..."):
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "Summarise the following document clearly and concisely."},
-                    {"role": "user", "content": st.session_state["word_text"]}
-                ]
-            )
-
-        summary = response.choices[0].message.content
-
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": f"📄 Word Document Summary:\n\n{summary}"
-        })
-
-        st.success("Summary added to chat.")
-
 # -------- Export Section --------
 st.sidebar.subheader("📥 Export Conversation")
 
@@ -227,30 +179,89 @@ st.sidebar.download_button(
     file_name="conversation.json"
 )
 
-st.sidebar.subheader("📂 Upload PDF")
+# -----------------------------------
+# 📂 DOCUMENT PROCESSOR
+# -----------------------------------
+st.sidebar.subheader("📂 Document Intelligence")
 
-uploaded_file = st.sidebar.file_uploader(
-    "Upload PDF",
-    type=["pdf"],
-    key="pdf_upload"
+uploaded_doc = st.sidebar.file_uploader(
+    "Upload PDF, Word, PPT, or CSV",
+    type=["pdf", "docx", "pptx", "csv"],
+    key="doc_upload"
 )
 
-if uploaded_file is not None:
+if uploaded_doc is not None:
 
     file_text = ""
+    file_type = uploaded_doc.type
 
-    pdf_reader = PyPDF2.PdfReader(uploaded_file)
+    try:
+        # -------- PDF --------
+        if file_type == "application/pdf":
+            pdf_reader = PyPDF2.PdfReader(uploaded_doc)
+            for page in pdf_reader.pages:
+                text = page.extract_text()
+                if text:
+                    file_text += text + "\n"
 
-    for page in pdf_reader.pages:
-        text = page.extract_text()
-        if text:
-            file_text += text + "\n"
+        # -------- WORD --------
+        elif file_type.endswith("wordprocessingml.document"):
+            doc = docx.Document(uploaded_doc)
+            for paragraph in doc.paragraphs:
+                if paragraph.text.strip():
+                    file_text += paragraph.text + "\n"
 
-    if file_text.strip() == "":
-        st.sidebar.error("No extractable text found in this PDF.")
-    else:
-        st.session_state["pdf_text"] = file_text
-        st.sidebar.success("PDF loaded successfully.")
+        # -------- POWERPOINT --------
+        elif file_type.endswith("presentationml.presentation"):
+            prs = Presentation(uploaded_doc)
+            for slide in prs.slides:
+                for shape in slide.shapes:
+                    if hasattr(shape, "text") and shape.text.strip():
+                        file_text += shape.text + "\n"
+
+        # -------- CSV --------
+        elif file_type == "text/csv":
+            df = pd.read_csv(uploaded_doc)
+            file_text = df.to_string(index=False)
+
+        # -------- VALIDATION --------
+        if file_text.strip() == "":
+            st.sidebar.error("No extractable text found in this document.")
+        else:
+            st.session_state["document_text"] = file_text
+            st.sidebar.success("Document loaded successfully.")
+
+    except Exception as e:
+        st.sidebar.error(f"Error processing document: {e}")
+
+# -------- SUMMARISE BUTTON --------
+if "document_text" in st.session_state:
+    if st.sidebar.button("Summarise Document"):
+
+        with st.spinner("Analyzing document..."):
+
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a professional document analyst. Summarise the following document clearly, concisely, and in structured bullet points."
+                    },
+                    {
+                        "role": "user",
+                        "content": st.session_state["document_text"]
+                    }
+                ]
+            )
+
+        summary = response.choices[0].message.content
+
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": f"📄 Document Summary:\n\n{summary}"
+        })
+
+        st.success("Summary added to chat.")
 
 # -------- Summarise Button --------
 if "pdf_text" in st.session_state:
