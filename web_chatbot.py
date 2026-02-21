@@ -29,6 +29,12 @@ st.set_page_config(
 st.title("🤖 Steve's Chatbot Pro")
 
 # -----------------------------------
+# CHAT STORAGE SETUP
+# -----------------------------------
+CHAT_DIR = "saved_chats"
+os.makedirs(CHAT_DIR, exist_ok=True)
+
+# -----------------------------------
 # OPENAI CLIENT (API KEY ONLY)
 # -----------------------------------
 api_key = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
@@ -48,6 +54,14 @@ if "messages" not in st.session_state:
 if "admin_authenticated" not in st.session_state:
     st.session_state.admin_authenticated = False
 
+# Auto-load latest conversation if exists
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+    files = sorted(
+        [f for f in os.listdir(CHAT_DIR) if f.endswith(".json")],
+        reverse=True
+    )
 # -----------------------------------
 # SIDEBAR
 # -----------------------------------
@@ -116,6 +130,11 @@ if uploaded_image is not None:
 
         st.success("Image analyzed successfully.")
 
+# Save conversation
+save_path = os.path.join(CHAT_DIR, "latest_chat.json")
+with open(save_path, "w") as f:
+    json.dump(st.session_state.messages, f, indent=2)
+
 # -------- Live Voice Section --------
 st.sidebar.subheader("🎤 Live Voice")
 
@@ -157,6 +176,11 @@ if st.sidebar.button("Transcribe Voice"):
         st.success("Voice transcribed and added to chat.")
     else:
         st.sidebar.warning("No audio recorded.")
+
+# Save conversation
+save_path = os.path.join(CHAT_DIR, "latest_chat.json")
+with open(save_path, "w") as f:
+    json.dump(st.session_state.messages, f, indent=2)
 
 # -------- Export Section --------
 st.sidebar.subheader("📥 Export Conversation")
@@ -251,6 +275,31 @@ if uploaded_doc is not None:
     except Exception as e:
         st.sidebar.error(f"Error processing document: {e}")
 
+st.sidebar.subheader("💾 Chat Management")
+
+# Save As
+chat_name = st.sidebar.text_input("Save chat as")
+
+if st.sidebar.button("Save Conversation"):
+    if chat_name:
+        file_path = os.path.join(CHAT_DIR, f"{chat_name}.json")
+        with open(file_path, "w") as f:
+            json.dump(st.session_state.messages, f, indent=2)
+        st.sidebar.success("Conversation saved.")
+    else:
+        st.sidebar.warning("Enter a name first.")
+
+# Load Chat
+saved_files = [f for f in os.listdir(CHAT_DIR) if f.endswith(".json")]
+
+selected_chat = st.sidebar.selectbox("Load conversation", saved_files)
+
+if st.sidebar.button("Load Conversation"):
+    with open(os.path.join(CHAT_DIR, selected_chat), "r") as f:
+        st.session_state.messages = json.load(f)
+    st.sidebar.success("Conversation loaded.")
+
+
 # -------- SUMMARISE BUTTON --------
 if "document_text" in st.session_state:
     if st.sidebar.button("Summarise Document"):
@@ -291,6 +340,11 @@ if "document_text" in st.session_state:
     else:
         st.sidebar.dataframe(st.session_state["spreadsheet_df"].head())
 
+        # Save conversation
+save_path = os.path.join(CHAT_DIR, "latest_chat.json")
+with open(save_path, "w") as f:
+    json.dump(st.session_state.messages, f, indent=2)
+
 
 # -------- Summarise Button --------
 if "pdf_text" in st.session_state:
@@ -312,6 +366,11 @@ if "pdf_text" in st.session_state:
         })
 
         st.success("Summary added to chat.")
+
+# Save conversation
+save_path = os.path.join(CHAT_DIR, "latest_chat.json")
+with open(save_path, "w") as f:
+    json.dump(st.session_state.messages, f, indent=2)
 
 # -------- Admin Controls --------
 if st.session_state.admin_authenticated:
