@@ -10,3 +10,5 @@ av
 soundfile
 numpy
 openpyxl
+pypdf
+pillow
