@@ -42,6 +42,33 @@ def analyse_large_text(text):
 
     return full_response
 
+import base64
+
+def analyse_image(uploaded_file):
+
+    bytes_data = uploaded_file.read()
+    base64_image = base64.b64encode(bytes_data).decode("utf-8")
+
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Provide a detailed professional analysis of this image."},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{base64_image}"
+                        },
+                    },
+                ],
+            }
+        ],
+    )
+
+    return response.choices[0].message.content
+
 # -------------------------------------------------
 # CONFIG
 # -------------------------------------------------
