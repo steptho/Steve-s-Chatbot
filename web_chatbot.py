@@ -145,6 +145,14 @@ if st.sidebar.button("🔍 Analyse Uploaded Files"):
 
     for file in st.session_state.uploaded_files:
 
+for file in uploaded_files:
+
+    if file.type.startswith("image"):
+        image_result = analyse_image(file)
+        analysis_text += f"\n\n===== IMAGE: {file.name} =====\n\n"
+        analysis_text += image_result
+
+
         # ---- PDF ----
         if file.name.endswith(".pdf"):
             reader = PdfReader(file)
