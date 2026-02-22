@@ -9,65 +9,42 @@ from docx import Document
 from PIL import Image
 import base64
 
-
 # ----------------------------
 # HELPER FUNCTIONS
 # ----------------------------
 
 def generate_chat_title(text):
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": "Generate a short professional conversation title (max 6 words)."},
-            {"role": "user", "content": text[:2000]}
-        ],
-    )
-    return response.choices[0].message.content.strip().replace('"', '')
-
-
-def analyse_large_text(text):
-    chunk_size = 12000
-    chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
-    full_response = ""
-
-    for chunk in chunks:
+    # Added a try/except block to ensure title generation doesn't crash the main chat
+    try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Analyse this document section."},
-                {"role": "user", "content": chunk}
+                {"role": "system", "content": "Generate a short professional conversation title (max 6 words). Respond ONLY with the title text."},
+                {"role": "user", "content": text[:2000]}
             ],
         )
-        full_response += response.choices[0].message.content + "\n\n"
+        # Clean the title for filesystem compatibility
+        title = response.choices[0].message.content.strip().replace('"', '').replace(':', '').replace('/', '')
+        return title
+    except:
+        return datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-    return full_response
+def rename_chat_file(old_id, new_title):
+    """Renames the physical JSON file and updates session state."""
+    old_path = os.path.join(CHAT_DIR, f"{old_id}.json")
+    
+    # Create a unique filename using the title
+    timestamp = datetime.now().strftime("%H%M")
+    new_id = f"{new_title}_{timestamp}"
+    new_path = os.path.join(CHAT_DIR, f"{new_id}.json")
+    
+    if os.path.exists(old_path):
+        os.rename(old_path, new_path)
+        st.session_state.current_chat_id = new_id
+        return new_id
+    return old_id
 
-import base64
-
-def analyse_image(uploaded_file):
-
-    bytes_data = uploaded_file.read()
-    base64_image = base64.b64encode(bytes_data).decode("utf-8")
-
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "Provide a detailed professional analysis of this image."},
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{base64_image}"
-                        },
-                    },
-                ],
-            }
-        ],
-    )
-
-    return response.choices[0].message.content
+# [Keep your existing analyse_large_text and analyse_image functions here]
 
 # -------------------------------------------------
 # CONFIG
@@ -112,115 +89,18 @@ st.sidebar.divider()
 
 chat_files = sorted(
     [f for f in os.listdir(CHAT_DIR) if f.endswith(".json")],
+    key=lambda x: os.path.getmtime(os.path.join(CHAT_DIR, x)),
     reverse=True
 )
 
 for file in chat_files:
-    chat_id = file.replace(".json", "")
-    if st.sidebar.button(chat_id):
+    # We display the filename as the button label
+    display_name = file.replace(".json", "").replace("_", " ")
+    if st.sidebar.button(display_name, key=file):
         load_chat(file)
         st.rerun()
 
-# -------------------------------------------------
-# FILE UPLOAD
-# -------------------------------------------------
-st.sidebar.header("📁 Upload Files")
-
-uploaded_files = st.sidebar.file_uploader(
-    "Upload PDF, Word, Excel, Images, CSV",
-    type=["pdf", "docx", "xlsx", "csv", "png", "jpg", "jpeg"],
-    accept_multiple_files=True
-)
-
-if uploaded_files:
-    st.session_state.uploaded_files = uploaded_files
-    st.sidebar.success(f"{len(uploaded_files)} file(s) ready")
-
-# -------------------------------------------------
-# ANALYSE BUTTON
-# -------------------------------------------------
-if st.sidebar.button("🔍 Analyse Uploaded Files"):
-
-    analysis_text = ""
-
-    for file in st.session_state.uploaded_files:
-
-        for file in uploaded_files:
-            if file.type.startswith("image"):
-                image_result = analyse_image(file)
-                analysis_text += f"\n\n===== IMAGE: {file.name} =====\n\n"
-                analysis_text += image_result
-
-
-        # ---- PDF ----
-        if file.name.endswith(".pdf"):
-            reader = PdfReader(file)
-            for page in reader.pages:
-                analysis_text += page.extract_text() + "\n"
-
-        # ---- Word ----
-        elif file.name.endswith(".docx"):
-            doc = Document(file)
-            for para in doc.paragraphs:
-                analysis_text += para.text + "\n"
-
-        # ---- Excel ----
-        elif file.name.endswith(".xlsx"):
-            df = pd.read_excel(file)
-            analysis_text += df.head().to_string()
-
-        elif file.name.endswith(".csv"):
-            df = pd.read_csv(file)
-            analysis_text += df.head().to_string()
-
-        # ---- Image ----
-        elif file.name.endswith(("png", "jpg", "jpeg")):
-            image = Image.open(file)
-            buffered = base64.b64encode(file.getvalue()).decode()
-            
-            vision_response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": "Describe and analyse this image."},
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{buffered}"
-                                },
-                            },
-                        ],
-                    }
-                ],
-            )
-            
-            analysis_text += vision_response.choices[0].message.content + "\n"
-
-    if analysis_text:
-
-        if st.session_state.current_chat_id is None:
-            st.session_state.current_chat_id = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are analysing uploaded documents."},
-                {"role": "user", "content": analysis_text[:15000]}
-            ],
-        )
-
-        reply = response.choices[0].message.content
-
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": reply
-        })
-
-        save_chat(st.session_state.current_chat_id)
-
-        st.rerun()
+# [Keep your existing FILE UPLOAD and ANALYSE BUTTON sections]
 
 # -------------------------------------------------
 # MAIN CHAT
@@ -236,25 +116,40 @@ for message in st.session_state.messages:
 # -------------------------------------------------
 if prompt := st.chat_input("Ask something..."):
 
+    # 1. Start with a temporary timestamp ID if it's a new chat
+    is_new_chat = False
     if st.session_state.current_chat_id is None:
         st.session_state.current_chat_id = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        is_new_chat = True
 
     st.session_state.messages.append({"role": "user", "content": prompt})
 
     with st.chat_message("user"):
         st.markdown(prompt)
 
+    # Get AI Response
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=st.session_state.messages
     )
 
     reply = response.choices[0].message.content
-
     st.session_state.messages.append({"role": "assistant", "content": reply})
 
     with st.chat_message("assistant"):
         st.markdown(reply)
 
+    # First save (with timestamp)
     save_chat(st.session_state.current_chat_id)
 
+    # 2. TRIGGER AUTO-TITLING: If this was the first message, rename it now
+    if is_new_chat:
+        with st.spinner("Generating title..."):
+            new_title = generate_chat_title(prompt)
+            # Rename the file from timestamp to the AI-generated title
+            st.session_state.current_chat_id = rename_chat_file(st.session_state.current_chat_id, new_title)
+            # Re-save under the new name
+            save_chat(st.session_state.current_chat_id)
+            st.rerun() # Rerun to refresh the sidebar titles immediately
+    else:
+        save_chat(st.session_state.current_chat_id)
