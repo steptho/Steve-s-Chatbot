@@ -4,31 +4,26 @@ import json
 from datetime import datetime
 from openai import OpenAI
 import pandas as pd
+from pypdf import PdfReader
+from docx import Document
+from PIL import Image
+import base64
 
 # -------------------------------------------------
 # CONFIG
 # -------------------------------------------------
 st.set_page_config(page_title="Steve's Chatbot", layout="wide")
-
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 CHAT_DIR = "saved_chats"
 os.makedirs(CHAT_DIR, exist_ok=True)
 
 # -------------------------------------------------
-# SAFE SESSION STATE INIT
+# SESSION STATE SAFE INIT
 # -------------------------------------------------
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-if "current_chat_id" not in st.session_state:
-    st.session_state.current_chat_id = None
-
-if "uploaded_files" not in st.session_state:
-    st.session_state.uploaded_files = []
-
-if "spreadsheet_df" not in st.session_state:
-    st.session_state.spreadsheet_df = None
+for key in ["messages", "current_chat_id", "uploaded_files", "spreadsheet_df"]:
+    if key not in st.session_state:
+        st.session_state[key] = [] if key in ["messages", "uploaded_files"] else None
 
 # -------------------------------------------------
 # SAVE / LOAD
@@ -44,7 +39,7 @@ def load_chat(file_name):
     st.session_state.current_chat_id = file_name.replace(".json", "")
 
 # -------------------------------------------------
-# SIDEBAR
+# SIDEBAR - CHATS
 # -------------------------------------------------
 st.sidebar.title("🗂 Conversations")
 
@@ -66,16 +61,8 @@ for file in chat_files:
         load_chat(file)
         st.rerun()
 
-if st.session_state.current_chat_id:
-    st.sidebar.divider()
-    if st.sidebar.button("🗑 Delete Current Conversation"):
-        os.remove(os.path.join(CHAT_DIR, f"{st.session_state.current_chat_id}.json"))
-        st.session_state.messages = []
-        st.session_state.current_chat_id = None
-        st.rerun()
-
 # -------------------------------------------------
-# FILE UPLOAD (ALWAYS VISIBLE)
+# FILE UPLOAD
 # -------------------------------------------------
 st.sidebar.header("📁 Upload Files")
 
@@ -86,25 +73,87 @@ uploaded_files = st.sidebar.file_uploader(
 )
 
 if uploaded_files:
-    for file in uploaded_files:
-        if file.name not in [f.name for f in st.session_state.uploaded_files]:
-            st.session_state.uploaded_files.append(file)
-
-    st.sidebar.success(f"{len(uploaded_files)} file(s) uploaded")
+    st.session_state.uploaded_files = uploaded_files
+    st.sidebar.success(f"{len(uploaded_files)} file(s) ready")
 
 # -------------------------------------------------
-# HANDLE SPREADSHEETS
+# ANALYSE BUTTON
 # -------------------------------------------------
-for file in st.session_state.uploaded_files:
-    if file.name.endswith(".xlsx"):
-        st.session_state.spreadsheet_df = pd.read_excel(file)
-    elif file.name.endswith(".csv"):
-        st.session_state.spreadsheet_df = pd.read_csv(file)
+if st.sidebar.button("🔍 Analyse Uploaded Files"):
 
-if st.session_state.spreadsheet_df is not None:
-    st.sidebar.divider()
-    st.sidebar.subheader("📊 Spreadsheet Preview")
-    st.sidebar.dataframe(st.session_state.spreadsheet_df.head())
+    analysis_text = ""
+
+    for file in st.session_state.uploaded_files:
+
+        # ---- PDF ----
+        if file.name.endswith(".pdf"):
+            reader = PdfReader(file)
+            for page in reader.pages:
+                analysis_text += page.extract_text() + "\n"
+
+        # ---- Word ----
+        elif file.name.endswith(".docx"):
+            doc = Document(file)
+            for para in doc.paragraphs:
+                analysis_text += para.text + "\n"
+
+        # ---- Excel ----
+        elif file.name.endswith(".xlsx"):
+            df = pd.read_excel(file)
+            analysis_text += df.head().to_string()
+
+        elif file.name.endswith(".csv"):
+            df = pd.read_csv(file)
+            analysis_text += df.head().to_string()
+
+        # ---- Image ----
+        elif file.name.endswith(("png", "jpg", "jpeg")):
+            image = Image.open(file)
+            buffered = base64.b64encode(file.getvalue()).decode()
+            
+            vision_response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Describe and analyse this image."},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{buffered}"
+                                },
+                            },
+                        ],
+                    }
+                ],
+            )
+            
+            analysis_text += vision_response.choices[0].message.content + "\n"
+
+    if analysis_text:
+
+        if st.session_state.current_chat_id is None:
+            st.session_state.current_chat_id = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are analysing uploaded documents."},
+                {"role": "user", "content": analysis_text[:15000]}
+            ],
+        )
+
+        reply = response.choices[0].message.content
+
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": reply
+        })
+
+        save_chat(st.session_state.current_chat_id)
+
+        st.rerun()
 
 # -------------------------------------------------
 # MAIN CHAT
@@ -116,44 +165,29 @@ for message in st.session_state.messages:
         st.markdown(message["content"])
 
 # -------------------------------------------------
-# USER INPUT
+# USER CHAT INPUT
 # -------------------------------------------------
 if prompt := st.chat_input("Ask something..."):
 
     if st.session_state.current_chat_id is None:
         st.session_state.current_chat_id = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-    st.session_state.messages.append({
-        "role": "user",
-        "content": prompt
-    })
+    st.session_state.messages.append({"role": "user", "content": prompt})
 
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Attach spreadsheet summary if exists
-    context_messages = st.session_state.messages.copy()
-
-    if st.session_state.spreadsheet_df is not None:
-        preview_text = st.session_state.spreadsheet_df.head().to_string()
-        context_messages.append({
-            "role": "system",
-            "content": f"Spreadsheet preview:\n{preview_text}"
-        })
-
     response = client.chat.completions.create(
         model="gpt-4o-mini",
-        messages=context_messages
+        messages=st.session_state.messages
     )
 
     reply = response.choices[0].message.content
 
-    st.session_state.messages.append({
-        "role": "assistant",
-        "content": reply
-    })
+    st.session_state.messages.append({"role": "assistant", "content": reply})
 
     with st.chat_message("assistant"):
         st.markdown(reply)
 
     save_chat(st.session_state.current_chat_id)
+
