@@ -9,6 +9,39 @@ from docx import Document
 from PIL import Image
 import base64
 
+
+# ----------------------------
+# HELPER FUNCTIONS
+# ----------------------------
+
+def generate_chat_title(text):
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "Generate a short professional conversation title (max 6 words)."},
+            {"role": "user", "content": text[:2000]}
+        ],
+    )
+    return response.choices[0].message.content.strip().replace('"', '')
+
+
+def analyse_large_text(text):
+    chunk_size = 12000
+    chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
+    full_response = ""
+
+    for chunk in chunks:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "Analyse this document section."},
+                {"role": "user", "content": chunk}
+            ],
+        )
+        full_response += response.choices[0].message.content + "\n\n"
+
+    return full_response
+
 # -------------------------------------------------
 # CONFIG
 # -------------------------------------------------
